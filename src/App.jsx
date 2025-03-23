@@ -69,9 +69,11 @@ function GPGPU() {
   const bufferGeomtryRef = useRef();
   const shaderMaterialRef = useRef();
   const meshBasicRef = useRef();
+  const pointsRef = useRef();
 
   // Base Geometry
   const baseGeometry = useMemo(() => {
+    if (!gltf) return;
     const instance = gltf.scene.children[0].geometry;
     return {
       instance,
@@ -81,6 +83,7 @@ function GPGPU() {
 
   // GPGPU Compute
   const gpgpu = useMemo(() => {
+    if (!baseGeometry.count) return;
     const gpgpuSize = Math.ceil(Math.sqrt(baseGeometry.count));
     const computation = new GPUComputationRenderer(gpgpuSize, gpgpuSize, gl);
 
@@ -96,6 +99,7 @@ function GPGPU() {
 
   // Calculation
   useMemo(() => {
+    if (!baseGeometry.count) return;
     for (let i = 0; i < baseGeometry.count; i++) {
       const i3 = i * 3;
       const i4 = i * 4;
@@ -109,9 +113,14 @@ function GPGPU() {
         baseGeometry.instance.attributes.position.array[i3 + 2];
       gpgpu.baseParticlesTexture.image.data[i4 + 3] = Math.random();
     }
-  }, []);
+  }, [
+    baseGeometry.count,
+    baseGeometry.instance.attributes.position.array,
+    gpgpu.baseParticlesTexture.image.data,
+  ]);
 
   const particlesVariable = useMemo(() => {
+    if (!gpgpu.computation) return;
     const variable = gpgpu.computation.addVariable(
       "uParticles",
       gpgpuParticlesShader,
@@ -121,7 +130,7 @@ function GPGPU() {
     gpgpu.computation.setVariableDependencies(variable, [variable]);
 
     return variable;
-  }, []);
+  }, [gpgpu.baseParticlesTexture, gpgpu.computation]);
 
   // Uniforms for gpgpu
   useEffect(() => {
@@ -145,6 +154,7 @@ function GPGPU() {
 
   // Particles
   useEffect(() => {
+    if (!baseGeometry.count) return;
     // Geomtetry
     const particlesUvArray = new Float32Array(baseGeometry.count * 2);
     const sizesArray = new Float32Array(baseGeometry.count);
@@ -205,7 +215,7 @@ function GPGPU() {
         <meshBasicMaterial ref={meshBasicRef} />
       </mesh>
 
-      <points>
+      <points ref={pointsRef}>
         <bufferGeometry ref={bufferGeomtryRef} />
         <shaderMaterial
           ref={shaderMaterialRef}
