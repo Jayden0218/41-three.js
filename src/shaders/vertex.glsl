@@ -23,9 +23,13 @@ void main()
     float sizeOut = 1.0 - smoothstep(0.7, 1.0, particle.a);
     float size = min(sizeIn, sizeOut);
 
-    gl_PointSize = size * aSize * uSize * uResolution.y;
-    gl_PointSize *= (1.0 / - viewPosition.z);
+    gl_PointSize = 10.0 * size * aSize ;
+    // gl_PointSize = size * aSize * uSize * uResolution.y * 500.0;
+    // gl_PointSize *= (1.0 / - viewPosition.z);
 
     // Varyings
     vColor = aColor;
 }
+
+
+

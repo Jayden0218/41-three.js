@@ -11,133 +11,65 @@ import gpgpuParticlesShader from "./shaders/particles.glsl";
 import { Canvas } from "@react-three/fiber";
 
 function GPGPU() {
-  // Leva Controls
   const {
-    clearColor,
-    uSize,
-    uFlowFieldFrequency,
+    claerColor,
+
     uFlowFieldInfluence,
+    uFlowFieldFrequency,
     uFlowFieldStrength,
   } = useControls({
-    clearColor: "#29191f",
-    uSize: { value: 0.03, min: 0, max: 1, step: 0.001 },
-    uFlowFieldInfluence: { value: 0.03, min: 0, max: 1, step: 0.001 },
-    uFlowFieldStrength: { value: 0.03, min: 0, max: 1, step: 0.001 },
-    uFlowFieldFrequency: { value: 0.03, min: 0, max: 1, step: 0.001 },
+    claerColor: "#29191f",
+
+    uFlowFieldInfluence: { value: 0.5, min: 0, max: 1, step: 0.01 },
+    uFlowFieldStrength: { value: 2, min: 0, max: 10, step: 0.01 },
+    uFlowFieldFrequency: { value: 0.5, min: 0, max: 1, step: 0.01 },
   });
 
-  // DracoLoader
   const gltf = useGLTF("/model.glb", { useDraco: true });
 
-  // Get properties from useThree
   const { size, dpr, gl } = useThree((state) => ({
     size: state.size,
     dpr: state.dpr,
     gl: state.gl,
   }));
 
-  // Uniforms
-  const uniforms = useMemo(
-    () => ({
-      uSize: new THREE.Uniform(uSize),
-      uResolution: new THREE.Uniform(
-        new THREE.Vector2(size.width * dpr, size.height * dpr)
-      ),
-      uParticlesTexture: new THREE.Uniform(),
-    }),
-    []
-  );
-
-  // Resize trigger
-  useEffect(() => {
-    shaderMaterialRef.current.uniforms.uResolution.value.set(
-      size.width * dpr,
-      size.height * dpr
-    );
-  }, [size]);
-
-  // Controls update
-  useEffect(() => {
-    gl.setClearColor(clearColor);
-    if (shaderMaterialRef.current) {
-      // console.log(bufferGeomtryRef.current);
-      shaderMaterialRef.current.uniforms.uSize.value = uSize;
-    }
-  }, [clearColor, uSize]);
-
-  // References
-  const bufferGeomtryRef = useRef();
-  const shaderMaterialRef = useRef();
-  const meshBasicRef = useRef();
-  const pointsRef = useRef();
-
   // Base Geometry
   const baseGeometry = useMemo(() => {
-    if (!gltf) return;
     const instance = gltf.scene.children[0].geometry;
     return {
       instance,
       count: instance.attributes.position.count,
     };
-  }, [gltf]);
+  }, [gltf.scene.children]);
 
-  // GPGPU Compute
   const gpgpu = useMemo(() => {
-    if (!baseGeometry.count) return;
-    const gpgpuSize = Math.ceil(Math.sqrt(baseGeometry.count));
-    const computation = new GPUComputationRenderer(gpgpuSize, gpgpuSize, gl);
-
-    // Base particles
+    const sizeGPGPU = Math.ceil(Math.sqrt(baseGeometry.count));
+    const computation = new GPUComputationRenderer(sizeGPGPU, sizeGPGPU, gl);
     const baseParticlesTexture = computation.createTexture();
 
-    return {
-      gpgpuSize,
-      computation,
-      baseParticlesTexture,
-    };
-  }, [baseGeometry.count, gl]);
-
-  // Calculation
-  useMemo(() => {
-    if (!baseGeometry.count) return;
     for (let i = 0; i < baseGeometry.count; i++) {
-      const i3 = i * 3;
       const i4 = i * 4;
-
-      // Position based on geometry
-      gpgpu.baseParticlesTexture.image.data[i4 + 0] =
-        baseGeometry.instance.attributes.position.array[i3 + 0];
-      gpgpu.baseParticlesTexture.image.data[i4 + 1] =
+      const i3 = i * 3;
+      baseParticlesTexture.image.data[i4] =
+        baseGeometry.instance.attributes.position.array[i3];
+      baseParticlesTexture.image.data[i4 + 1] =
         baseGeometry.instance.attributes.position.array[i3 + 1];
-      gpgpu.baseParticlesTexture.image.data[i4 + 2] =
+      baseParticlesTexture.image.data[i4 + 2] =
         baseGeometry.instance.attributes.position.array[i3 + 2];
-      gpgpu.baseParticlesTexture.image.data[i4 + 3] = Math.random();
+      baseParticlesTexture.image.data[i4 + 3] = Math.random();
     }
-  }, [
-    baseGeometry.count,
-    baseGeometry.instance.attributes.position.array,
-    gpgpu.baseParticlesTexture.image.data,
-  ]);
 
-  const particlesVariable = useMemo(() => {
-    if (!gpgpu.computation) return;
-    const variable = gpgpu.computation.addVariable(
+    const particlesVariable = computation.addVariable(
       "uParticles",
       gpgpuParticlesShader,
-      gpgpu.baseParticlesTexture
+      baseParticlesTexture
     );
+    computation.setVariableDependencies(particlesVariable, [particlesVariable]);
 
-    gpgpu.computation.setVariableDependencies(variable, [variable]);
-
-    return variable;
-  }, [gpgpu.baseParticlesTexture, gpgpu.computation]);
-
-  // Uniforms for gpgpu
-  useEffect(() => {
     particlesVariable.material.uniforms.uTime = new THREE.Uniform(0);
     particlesVariable.material.uniforms.uDeltaTime = new THREE.Uniform(0);
     particlesVariable.material.uniforms.uBase = new THREE.Uniform(
-      gpgpu.baseParticlesTexture
+      baseParticlesTexture
     );
     particlesVariable.material.uniforms.uFlowFieldInfluence = new THREE.Uniform(
       uFlowFieldInfluence
@@ -149,74 +81,112 @@ function GPGPU() {
       uFlowFieldFrequency
     );
 
-    gpgpu.computation.init();
-  }, []);
+    computation.init();
+    return {
+      sizeGPGPU,
+      computation,
+      baseParticlesTexture,
+      particlesVariable,
+    };
+  }, [
+    baseGeometry.count,
+    baseGeometry.instance.attributes.position.array,
+    gl,
+    uFlowFieldFrequency,
+    uFlowFieldInfluence,
+    uFlowFieldStrength,
+  ]);
 
-  // Particles
   useEffect(() => {
-    if (!baseGeometry.count) return;
-    // Geomtetry
+    if (gpgpu?.particlesVariable) {
+      gpgpu.particlesVariable.material.uniforms.uFlowFieldFrequency.value =
+        uFlowFieldFrequency;
+      gpgpu.particlesVariable.material.uniforms.uFlowFieldInfluence.value =
+        uFlowFieldInfluence;
+      gpgpu.particlesVariable.material.uniforms.uFlowFieldStrength.value =
+        uFlowFieldStrength;
+    }
+  }, [
+    gpgpu.particlesVariable,
+    uFlowFieldFrequency,
+    uFlowFieldInfluence,
+    uFlowFieldStrength,
+  ]);
+
+  const shaderMaterialRef = useRef();
+
+  const uniforms = useMemo(
+    () => ({
+      uSize: new THREE.Uniform(0.7),
+      uResolution: new THREE.Uniform(
+        new THREE.Vector2(size.width * dpr, size.height * dpr)
+      ),
+      uParticlesTexture: new THREE.Uniform(),
+    }),
+
+    [dpr, size.height, size.width]
+  );
+
+  useEffect(() => {
+    shaderMaterialRef.current.uniforms.uResolution.value.set(
+      size.width * dpr,
+      size.height * dpr
+    );
+    gl.setClearColor(claerColor);
+  }, [size.height, size.width, claerColor, dpr, gl]);
+
+  useFrame((_, delta) => {
+    gpgpu.particlesVariable.material.uniforms.uTime.value += delta;
+    gpgpu.particlesVariable.material.uniforms.uDeltaTime.value = delta;
+    gpgpu.computation.compute();
+
+    // Update the uniform value directly
+    shaderMaterialRef.current.uniforms.uParticlesTexture.value =
+      gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable).texture;
+  });
+
+  useEffect(() => {
     const particlesUvArray = new Float32Array(baseGeometry.count * 2);
     const sizesArray = new Float32Array(baseGeometry.count);
 
-    for (let y = 0; y < gpgpu.size; y++) {
-      for (let x = 0; x < gpgpu.size; x++) {
-        const i = y * gpgpu.size + x;
+    for (let y = 0; y < gpgpu.sizeGPGPU; y++) {
+      for (let x = 0; x < gpgpu.sizeGPGPU; x++) {
+        const i = y * gpgpu.sizeGPGPU + x;
         const i2 = i * 2;
 
-        // UV
-        const uvX = (x + 0.5) / gpgpu.size;
-        const uvY = (y + 0.5) / gpgpu.size;
+        const uvX = (x + 0.5) / gpgpu.sizeGPGPU;
+        const uvY = (y + 0.5) / gpgpu.sizeGPGPU;
 
-        particlesUvArray[i2 + 0] = uvX;
+        particlesUvArray[i2] = uvX;
         particlesUvArray[i2 + 1] = uvY;
-
-        // Size
         sizesArray[i] = Math.random();
       }
     }
 
-    bufferGeomtryRef.current.setDrawRange(0, baseGeometry.count);
-    bufferGeomtryRef.current.setAttribute(
+    if (!baseGeometry?.instance?.setAttribute) return;
+    baseGeometry.instance.setAttribute(
       "aParticlesUv",
       new THREE.BufferAttribute(particlesUvArray, 2)
     );
-    bufferGeomtryRef.current.setAttribute(
+    baseGeometry.instance.setAttribute(
       "aColor",
       baseGeometry.instance.attributes.color
     );
-    bufferGeomtryRef.current.setAttribute(
+    baseGeometry.instance.setAttribute(
       "aSize",
       new THREE.BufferAttribute(sizesArray, 1)
     );
-  }, [baseGeometry.count, baseGeometry.instance.attributes.color, gpgpu.size]);
-
-  useEffect(() => {
-    meshBasicRef.current.map =
-      gpgpu.computation.getCurrentRenderTarget(particlesVariable).texture;
-  }, [gpgpu.computation, particlesVariable]);
-
-  useFrame((_, delta) => {
-    if (particlesVariable) {
-      particlesVariable.material.uniforms.uTime.value = delta;
-      particlesVariable.material.uniforms.uDeltaTime.value = delta;
-      gpgpu.computation.compute();
-      if (shaderMaterialRef.current) {
-        shaderMaterialRef.current.uniforms.uParticlesTexture.value =
-          gpgpu.computation.getCurrentRenderTarget(particlesVariable).texture;
-      }
-    }
-  });
+  }, [
+    baseGeometry.count,
+    baseGeometry.instance,
+    gpgpu.gpgpuSize,
+    gpgpu.sizeGPGPU,
+  ]);
 
   return (
     <>
-      <mesh position-x={3} visible={false}>
-        <planeGeometry args={[3, 3]} />
-        <meshBasicMaterial ref={meshBasicRef} />
-      </mesh>
-
-      <points ref={pointsRef}>
-        <bufferGeometry ref={bufferGeomtryRef} />
+      <points>
+        <primitive object={baseGeometry.instance} />
         <shaderMaterial
           ref={shaderMaterialRef}
           vertexShader={particlesVertexShader}
@@ -224,13 +194,25 @@ function GPGPU() {
           uniforms={uniforms}
         />
       </points>
+      <mesh position-x={3} visible={false}>
+        <planeGeometry args={[3, 3]} />
+        <meshBasicMaterial
+          map={
+            gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable)
+              .texture
+          }
+        />
+      </mesh>
     </>
   );
 }
 
 function App() {
   return (
-    <Canvas camera={{ fov: 35, position: [4.5, 4, 11] }}>
+    <Canvas
+      camera={{ fov: 35, position: [4.5, 4, 11] }}
+      gl={{ antialias: true }}
+    >
       <OrbitControls enableDamping />
       <GPGPU />
     </Canvas>
